@@ -380,42 +380,28 @@
     inner.scale.setScalar(1.2); inner.rotation.set(0.06, -0.6, 0);
     var spin = new THREE.Group(); inner.add(spin);
 
-    // tyre profile with circumferential grooves
-    var tp = [[0.66, -0.3], [0.8, -0.32], [0.93, -0.31], [0.985, -0.27], [1.0, -0.21]];
-    [-0.14, -0.047, 0.047, 0.14].forEach(function (z) { tp.push([1.0, z - 0.016], [0.965, z - 0.016], [0.965, z + 0.016], [1.0, z + 0.016]); });
-    tp.push([1.0, 0.21], [0.985, 0.27], [0.93, 0.31], [0.8, 0.32], [0.66, 0.3]);
-    var tyre = lathe(tp, 96, 50); tyre.rotateX(Math.PI / 2);
-    add(spin, tyre, M.rubber);
-    for (var i = 0; i < 60; i++) {                                           // shoulder tread blocks
-      var a = i / 60 * TAU;
-      [1, -1].forEach(function (sd) {
-        var b = add(spin, new THREE.BoxGeometry(0.03, 0.05, 0.1), M.rubber, Math.cos(a) * 0.985, Math.sin(a) * 0.985, sd * 0.235);
-        b.rotation.z = a; b.rotation.x = sd * 0.25;
-      });
-    }
-    var barrel = lathe([[0.675, -0.3], [0.65, -0.29], [0.64, -0.22], [0.6, -0.1], [0.6, 0.12], [0.64, 0.22], [0.65, 0.29], [0.675, 0.3]], 96, 60);
-    barrel.rotateX(Math.PI / 2);
-    var barrelMat = M.chrome.clone(); barrelMat.side = THREE.DoubleSide; barrelMat.roughness = 0.16;
-    add(spin, barrel, barrelMat);
+    // light code-built stand-in until the Blender model loads
+    var simple = new THREE.Group(); spin.add(simple);
+    var tyre = lathe([[0.66, -0.3], [0.8, -0.32], [0.93, -0.31], [0.985, -0.27], [1.0, -0.21], [1.0, 0.21], [0.985, 0.27], [0.93, 0.31], [0.8, 0.32], [0.66, 0.3]], 72, 50);
+    tyre.rotateX(Math.PI / 2);
+    add(simple, tyre, M.rubber);
+    add(simple, cyl(0.66, 0.5, 64), M.gun);
 
-    // spoke face: disc with ten windows cut out
-    var NS = 10, w = 0.036, rIn = 0.2, rOut = 0.585, face = new THREE.Shape(); circle(face, 0, 0, 0.655, 128);
-    for (var k = 0; k < NS; k++) {
-      var c0 = k / NS * TAU, c1 = (k + 1) / NS * TAU, so = Math.asin(w / rOut), si = Math.asin(w / rIn), h = new THREE.Path();
-      h.moveTo(rOut * Math.cos(c0 + so), rOut * Math.sin(c0 + so));
-      h.absarc(0, 0, rOut, c0 + so, c1 - so, false);
-      h.lineTo(rIn * Math.cos(c1 - si), rIn * Math.sin(c1 - si));
-      h.absarc(0, 0, rIn, c1 - si, c0 + si, true);
-      h.closePath(); face.holes.push(h);
-    }
-    add(spin, extrude(face, 0.07, 0.022, 14), std({ color: 0xdfe3e9, metalness: 1, roughness: 0.2 }), 0, 0, 0.2);
-    add(spin, cyl(0.2, 0.1, 48), M.gun, 0, 0, 0.21);
-    add(spin, cyl(0.095, 0.03, 40), M.red, 0, 0, 0.265);
-    for (var j = 0; j < 5; j++) { var la = j / 5 * TAU; add(spin, cyl(0.026, 0.05, 6), M.chrome, Math.cos(la) * 0.15, Math.sin(la) * 0.15, 0.255); }
+    loadGLB("assets/models/wheel.glb", {
+      tyre: std({ color: 0x0b0b0c, metalness: 0, roughness: 0.82 }),
+      wheel_face: std({ color: 0xd9dde3, metalness: 1, roughness: 0.2 }),
+      wheel_barrel: std({ color: 0xaeb3bb, metalness: 1, roughness: 0.28 }),
+      wheel_cap: M.red, wheel_nut: M.chrome, wheel_black: M.black
+    }, function (model) { spin.remove(simple); spin.add(model); });
 
-    // brake visible through the spokes
-    add(spin, extrude(discShape(0.53, 0.2, true), 0.05, 0.005, 8), faced(0.53, { roughness: 0.7 }), 0, 0, 0.04);
-    add(inner, extrude(caliperShape(0.34, 0.585, 0.5, 1.6), 0.16, 0.02, 24), M.red, 0, 0, 0.05);
+    // the brake from the previous stage, scaled down, sits behind the spokes
+    var BRAKE = 0.5, BRAKE_Z = -0.1, face = faced(1.0, { color: 0xaab0b9, roughness: 0.6 }); face.userData.planarUV = true;
+    loadGLB("assets/models/disc.glb", {
+      disc_face: face, disc_hat: std({ color: 0x25272c, metalness: 1, roughness: 0.42 }), disc_vane: std({ color: 0x141518, metalness: 0.8, roughness: 0.6 })
+    }, function (model) { model.scale.setScalar(BRAKE); model.position.z = BRAKE_Z; spin.add(model); });
+    loadGLB("assets/models/caliper.glb", { red: M.red, pad: M.pad, steel: M.steel, chrome: M.chrome, black: M.black }, function (model) {
+      model.scale.setScalar(BRAKE); model.position.z = BRAKE_Z; model.rotation.z = (55 - 90) * Math.PI / 180; inner.add(model);
+    });
     return { group: group, update: function (t) { spin.rotation.z = -t * 0.5; } };
   });
 
@@ -615,8 +601,9 @@
     for (var i = 0; i < parts.length; i++) {
       var d = curT - i, ad = Math.abs(d), p = parts[i];
       if (p && p.loads && ad < 1.6) { p.loads.forEach(function (go) { go(); }); p.loads = null; }   // fetch models just ahead of need
-      if (ad >= 0.98) { if (p) p.group.visible = false; continue; }
+      if (ad >= (isMobile ? 0.58 : 0.98)) { if (p) p.group.visible = false; continue; }   // phones: hidden once shrunk away, so its lights go too
       p = ensure(i);
+      if (p.loads) { p.loads.forEach(function (go) { go(); }); p.loads = null; }   // built just now: fetch its models straight away
       p.group.visible = true;
       if (isMobile) {                                                        // phones: swap in place above the fixed card
         p.group.position.y = d * 0.9;
