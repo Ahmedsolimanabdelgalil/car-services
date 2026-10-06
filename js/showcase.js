@@ -122,7 +122,17 @@
   var deferred = null;
   function loadGLB(url, mats, done) {
     if (deferred) { deferred.push(function () { loadGLB(url, mats, done); }); return; }
-    fetch(url).then(function (r) { if (!r.ok) throw new Error(r.status); return r.arrayBuffer(); }).then(function (buf) {
+    // Prefer the pre-gzipped copy (url + "z") and unpack it here; fall back to the plain file.
+    function plain() { return fetch(url).then(function (r) { if (!r.ok) throw new Error(r.status); return r.arrayBuffer(); }); }
+    var packed = !window.DecompressionStream ? plain() : fetch(url + "z").then(function (r) {
+      if (!r.ok) throw new Error(r.status);
+      return r.arrayBuffer();
+    }).then(function (raw) {
+      var head = new Uint8Array(raw, 0, 2);
+      if (head[0] !== 0x1f || head[1] !== 0x8b) return raw;          // the server already unpacked it
+      return new Response(new Blob([raw]).stream().pipeThrough(new DecompressionStream("gzip"))).arrayBuffer();
+    }).catch(plain);
+    packed.then(function (buf) {
       var dv = new DataView(buf), jsonLen = dv.getUint32(12, true);
       var json = JSON.parse(new TextDecoder().decode(new Uint8Array(buf, 20, jsonLen)));
       var binStart = 20 + jsonLen + 8, SIZE = { SCALAR: 1, VEC2: 2, VEC3: 3, VEC4: 4 };

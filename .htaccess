@@ -1,6 +1,7 @@
 # Hostinger / Apache / LiteSpeed: compression and browser caching for the static site.
 
 AddType model/gltf-binary .glb
+AddType application/octet-stream .glbz
 AddDefaultCharset UTF-8
 
 # Compress text files and the 3D models on the fly
@@ -20,6 +21,7 @@ AddDefaultCharset UTF-8
   ExpiresByType application/javascript "access plus 7 days"
   ExpiresByType image/svg+xml "access plus 30 days"
   ExpiresByType model/gltf-binary "access plus 30 days"
+  ExpiresByType application/octet-stream "access plus 30 days"
 </IfModule>
 
 # Keep development files private
