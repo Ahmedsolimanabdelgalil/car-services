@@ -71,7 +71,7 @@
     var base = Math.floor(raw);
     stageT = base + smooth(0.18, 0.82, raw - base);
 
-    var active = Math.round(raw);
+    var active = y > journeyEnd ? -1 : Math.round(raw);        // no card once the services are scrolled past
     if (active !== activeStage) {
       activeStage = active;
       stages.forEach(function (el, i) { el.classList.toggle('is-active', i === active); });
