@@ -585,7 +585,7 @@
     W = window.innerWidth; H = window.innerHeight; isMobile = W <= 860;
     renderer.setSize(W, H, false);
     camera.aspect = W / H;
-    fit = isMobile ? Math.min(0.8, Math.max(0.52, camera.aspect * 1.3)) : Math.min(1, Math.max(0.62, camera.aspect * 0.62));
+    fit = isMobile ? Math.min(0.8, Math.max(0.46, camera.aspect * 1.1)) : Math.min(1, Math.max(0.62, camera.aspect * 0.62));
   }
   resize();
   window.addEventListener('resize', resize);
@@ -618,8 +618,13 @@
       if (ad >= 0.98) { if (p) p.group.visible = false; continue; }
       p = ensure(i);
       p.group.visible = true;
-      p.group.position.y = d * 4.4;                                          // rides up with the scroll
-      p.group.scale.setScalar(fit * (1 - 0.4 * ad) * (isMobile && i === 0 ? 0.82 : 1));
+      if (isMobile) {                                                        // phones: swap in place above the fixed card
+        p.group.position.y = d * 0.9;
+        p.group.scale.setScalar(fit * Math.max(0.001, 1 - 1.7 * ad) * (i === 0 ? 0.64 : 1));
+      } else {
+        p.group.position.y = d * 4.4;                                        // rides up with the scroll
+        p.group.scale.setScalar(fit * (1 - 0.4 * ad));
+      }
       p.group.rotation.set(tilt.x + d * 0.5, tilt.y + d * 1.5, 0);
       p.update(time, dt);
     }
@@ -628,7 +633,7 @@
     dial.rotation.z = -curT * 0.7 + time * 0.03;
     halo.scale.setScalar(8.5 * fit);
 
-    var sx = isMobile ? 0 : curSx, sy = isMobile ? 0.2 + 0.08 * Math.max(0, 1 - curT) : 0;
+    var sx = isMobile ? 0 : curSx, sy = isMobile ? 0.21 + 0.1 * Math.max(0, 1 - curT) : 0;
     camera.setViewOffset(W, H, -sx * W, sy * H, W, H);
     renderer.render(scene, camera);
     if (!started) { started = true; SITE.hideLoader(); idle(buildRest); }

@@ -285,7 +285,22 @@ main { position: relative; z-index: 1; }
 
   .stop { align-items: flex-end; padding-bottom: 96px; }
   .stop[data-side] { justify-content: center; }
-  .card { padding: 22px 22px 20px; }
+  .card { padding: 20px 20px 18px; }
+  /* phones: the card stays put at the bottom while the part changes above it,
+     so text and model never overlap whatever the scroll position */
+  html:not(.no-3d) .card {
+    position: fixed; z-index: 5; bottom: 92px; inset-inline: 16px; width: auto; max-width: 480px; margin-inline: auto;
+    transform: translateY(18px); pointer-events: none; visibility: hidden;
+    transition: opacity .35s ease, transform .35s ease, visibility 0s .35s;
+  }
+  html:not(.no-3d) .stop.is-active .card {
+    transform: none; pointer-events: auto; visibility: visible;
+    transition: opacity .35s ease, transform .35s ease, visibility 0s;
+  }
+  .card p { font-size: .95rem; }
+  .hero h1 { font-size: clamp(2rem, 9.5vw, 2.8rem); }
+  .lead { font-size: 1rem; margin-top: 14px; }
+  .hero .actions { margin-top: 22px; }
   .card__num { font-size: 2.4rem; }
   .card ul { grid-template-columns: 1fr 1fr; gap: 8px 12px; font-size: .93rem; }
 
