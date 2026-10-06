@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="الشركة الوطنية لصيانة السيارات">
+  <rect width="64" height="64" rx="14" fill="#0a0c10"/>
+  <!-- gear -->
+  <circle cx="32" cy="32" r="21" fill="none" stroke="#e5202e" stroke-width="7" stroke-dasharray="8.247 8.247" transform="rotate(-11.25 32 32)"/>
+  <circle cx="32" cy="32" r="16" fill="none" stroke="#e5202e" stroke-width="5"/>
+  <!-- road to horizon -->
+  <path d="M25 42 L30 24 M39 42 L34 24" stroke="#ffffff" stroke-width="3" stroke-linecap="round" fill="none"/>
+  <path d="M32 41v-4 M32 33v-3 M32 27v-2" stroke="#ff7a3d" stroke-width="2" stroke-linecap="round"/>
+</svg>
