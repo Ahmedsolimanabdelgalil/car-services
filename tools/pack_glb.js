@@ -1,7 +1,7 @@
 // Shrinks the models in assets/models after a Blender export:
 //   positions float32 -> uint16 (KHR_mesh_quantization, de-quantised by the node transform)
 //   normals   float32 -> int16 normalised, indices -> uint16 where possible, unused attributes dropped
-// Run after any tools/build_*.py:   node tools/pack_glb.js
+// Run after any tools/build_*.py:   node tools/pack_glb.js   (also refreshes the .glbz copies)
 // The reader in js/showcase.js understands both packed and unpacked files.
 const fs = require('fs');
 const path = require('path');
@@ -84,3 +84,12 @@ function pack(file) {
 }
 
 fs.readdirSync(DIR).filter((f) => f.endsWith('.glb')).forEach((f) => pack(path.join(DIR, f)));
+
+// Pre-compressed copies (.glbz = gzip). The site prefers these and unpacks them in the browser,
+// so the download is small even on hosts that do not compress .glb on the fly.
+const zlib = require('zlib');
+fs.readdirSync(DIR).filter((f) => f.endsWith('.glb')).forEach((f) => {
+  const src = path.join(DIR, f), out = src + 'z';
+  fs.writeFileSync(out, zlib.gzipSync(fs.readFileSync(src), { level: 9 }));
+  console.log('gzipped:', path.basename(out), fs.statSync(out).size, 'bytes');
+});
