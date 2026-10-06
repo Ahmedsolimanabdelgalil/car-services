@@ -1,0 +1,27 @@
+# Hostinger / Apache / LiteSpeed: compression and browser caching for the static site.
+
+AddType model/gltf-binary .glb
+AddDefaultCharset UTF-8
+
+# Compress text files and the 3D models on the fly
+<IfModule mod_deflate.c>
+  AddOutputFilterByType DEFLATE text/html text/css text/javascript application/javascript application/json image/svg+xml model/gltf-binary
+</IfModule>
+<IfModule mod_brotli.c>
+  AddOutputFilterByType BROTLI_COMPRESS text/html text/css text/javascript application/javascript application/json image/svg+xml model/gltf-binary
+</IfModule>
+
+# Returning visitors reuse what they already downloaded
+<IfModule mod_expires.c>
+  ExpiresActive On
+  ExpiresByType text/html "access plus 10 minutes"
+  ExpiresByType text/css "access plus 7 days"
+  ExpiresByType text/javascript "access plus 7 days"
+  ExpiresByType application/javascript "access plus 7 days"
+  ExpiresByType image/svg+xml "access plus 30 days"
+  ExpiresByType model/gltf-binary "access plus 30 days"
+</IfModule>
+
+# Keep development files private
+RedirectMatch 404 ^/(tools|\.claude|\.git)(/|$)
+RedirectMatch 404 ^/serve\.js$

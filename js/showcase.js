@@ -1,5 +1,5 @@
 /* 3D showcase: one precision part per stage, presented like jewellery.
-   Stage 0 gears (hero) · 1 piston · 2 brake · 3 wheel · 4 spark plug · 5 fan · 6 oil filter */
+   Stage 0 gears (hero) · 1 piston · 2 brake · 3 wheel · 4 spark plug · 5 A/C compressor · 6 oil filter */
 (function () {
   'use strict';
 
@@ -97,7 +97,7 @@
       bevelEnabled: bevel > 0, bevelThickness: bevel, bevelSize: bevel, bevelOffset: -bevel, bevelSegments: 2
     });
     g.translate(0, 0, -depth / 2 + bevel);
-    return smoothNormals(g, 35);
+    return smoothNormals(g, 20);   // below the bevel step angle, so flat faces keep true normals
   }
   function circle(path, cx, cy, r, n) {      // polygonal circle so segment count is per-feature
     for (var i = 0; i <= n; i++) {
@@ -114,6 +114,56 @@
   }
   function add(parent, geo, mat, x, y, z) {
     var m = new THREE.Mesh(geo, mat); m.position.set(x || 0, y || 0, z || 0); parent.add(m); return m;
+  }
+
+  // Minimal .glb reader for models exported by tools/*.py (plain meshes, no textures or skins).
+  // Materials are matched by name to the ones defined here, so models share the studio look.
+  // Called while a part is being built, the request is only queued: it is sent when the visitor gets close to that stage.
+  var deferred = null;
+  function loadGLB(url, mats, done) {
+    if (deferred) { deferred.push(function () { loadGLB(url, mats, done); }); return; }
+    fetch(url).then(function (r) { if (!r.ok) throw new Error(r.status); return r.arrayBuffer(); }).then(function (buf) {
+      var dv = new DataView(buf), jsonLen = dv.getUint32(12, true);
+      var json = JSON.parse(new TextDecoder().decode(new Uint8Array(buf, 20, jsonLen)));
+      var binStart = 20 + jsonLen + 8, SIZE = { SCALAR: 1, VEC2: 2, VEC3: 3, VEC4: 4 };
+      function accessor(i) {
+        var a = json.accessors[i], v = json.bufferViews[a.bufferView], size = SIZE[a.type], n = a.count * size;
+        var T = { 5120: Int8Array, 5121: Uint8Array, 5122: Int16Array, 5123: Uint16Array, 5125: Uint32Array, 5126: Float32Array }[a.componentType];
+        var off = binStart + (v.byteOffset || 0) + (a.byteOffset || 0), bytes = size * T.BYTES_PER_ELEMENT, stride = v.byteStride || bytes, out;
+        if (stride === bytes) out = new T(buf.slice(off, off + n * T.BYTES_PER_ELEMENT));
+        else {                                           // packed files pad each vertex to 4 bytes
+          var src = new T(buf.slice(off, off + (a.count - 1) * stride + bytes + (stride - bytes))), step = stride / T.BYTES_PER_ELEMENT;
+          out = new T(n);
+          for (var e = 0; e < a.count; e++) for (var c = 0; c < size; c++) out[e * size + c] = src[e * step + c];
+        }
+        return new THREE.BufferAttribute(out, size, !!a.normalized);
+      }
+      var root = new THREE.Group();
+      (json.nodes || []).forEach(function (node) {
+        if (node.mesh === undefined) return;
+        var holder = new THREE.Group(); holder.name = node.name || "";
+        if (node.translation) holder.position.fromArray(node.translation);
+        if (node.rotation) holder.quaternion.fromArray(node.rotation);
+        if (node.scale) holder.scale.fromArray(node.scale);
+        json.meshes[node.mesh].primitives.forEach(function (p) {
+          var g = new THREE.BufferGeometry();
+          g.setAttribute("position", accessor(p.attributes.POSITION));
+          if (p.attributes.NORMAL !== undefined) g.setAttribute("normal", accessor(p.attributes.NORMAL)); else g.computeVertexNormals();
+          if (p.indices !== undefined) g.setIndex(accessor(p.indices));
+          var name = p.material !== undefined ? json.materials[p.material].name : "", mat = mats[name] || M.steel;
+          if (mat.userData.planarUV) {                   // concentric machining marks need uv = (x, y)
+            var pos = g.attributes.position, uv = new Float32Array(pos.count * 2);
+            for (var i = 0; i < pos.count; i++) {        // in model units, so undo the packing transform
+              uv[i * 2] = pos.getX(i) * holder.scale.x + holder.position.x; uv[i * 2 + 1] = pos.getY(i) * holder.scale.y + holder.position.y;
+            }
+            g.setAttribute("uv", new THREE.BufferAttribute(uv, 2));
+          }
+          holder.add(new THREE.Mesh(g, mat));
+        });
+        root.add(holder);
+      });
+      done(root);
+    }).catch(function (e) { console.warn("Model not loaded, keeping the built-in part:", url, e); });
   }
 
   /* ---------------- studio environment ---------------- */
@@ -150,6 +200,7 @@
     gun: std({ color: 0x2b2e35, metalness: 1, roughness: 0.28 }),
     black: std({ color: 0x0b0c0f, metalness: 0.6, roughness: 0.38 }),
     rubber: std({ color: 0x0a0a0b, metalness: 0, roughness: 0.88 }),
+    pad: std({ color: 0x17181b, metalness: 0.2, roughness: 0.8 }),
     red: phys({ color: 0xc8101e, metalness: 0.35, roughness: 0.35, clearcoat: 1, clearcoatRoughness: 0.08 }),
     ceramic: phys({ color: 0xf2f0ea, metalness: 0, roughness: 0.25, clearcoat: 1, clearcoatRoughness: 0.05 }),
     gold: std({ color: 0xe0a431, metalness: 1, roughness: 0.2 }),
@@ -280,9 +331,11 @@
   builders.push(function () {
     var group = new THREE.Group(), inner = new THREE.Group(); group.add(inner);
     inner.scale.setScalar(1.22); inner.rotation.set(0.1, -0.55, 0);
-    var rotor = new THREE.Group(); inner.add(rotor);
+    var spinGroup = new THREE.Group(); inner.add(spinGroup);
+    // code-built stand-in disc, replaced by the Blender model once it loads
+    var rotor = new THREE.Group(); spinGroup.add(rotor);
     var face = faced(1.0, { roughness: 0.7 });
-    var plate = extrude(discShape(1.0, 0.56, true), 0.045, 0.006, 10);
+    var plate = extrude(discShape(1.0, 0.56, false), 0.045, 0.006, 10);
     add(rotor, plate, face, 0, 0, 0.05); add(rotor, plate, face, 0, 0, -0.05);
     var vent = new THREE.CylinderGeometry(0.985, 0.985, 0.06, 96, 1, true); vent.rotateX(Math.PI / 2);
     add(rotor, vent, M.black);
@@ -298,16 +351,27 @@
     for (var k = 0; k < 5; k++) { var b = k / 5 * TAU + 0.3; hs.holes.push(hole(Math.cos(b) * 0.31, Math.sin(b) * 0.31, 0.045, 16)); }
     add(rotor, extrude(hs, 0.03, 0.006), faced(0.47, { color: 0x4a4e57, roughness: 0.5 }), 0, 0, 0.25);
 
-    // caliper (fixed)
-    var a0 = 18 * Math.PI / 180, a1 = 92 * Math.PI / 180;
-    add(inner, extrude(caliperShape(0.6, 1.13, a0, a1), 0.4, 0.045, 40), M.red);
-    add(inner, extrude(caliperShape(0.94, 1.16, a0 + 0.12, a1 - 0.12), 0.2, 0.02, 30), M.black);   // pad window
+    var discFace = faced(1.0, { color: 0xaab0b9, roughness: 0.6 }); discFace.userData.planarUV = true;
+    loadGLB("assets/models/disc.glb", {
+      disc_face: discFace,
+      disc_hat: std({ color: 0x25272c, metalness: 1, roughness: 0.42 }),
+      disc_vane: std({ color: 0x141518, metalness: 0.8, roughness: 0.6 })
+    }, function (model) { spinGroup.remove(rotor); spinGroup.add(model); });
+
+    // caliper (fixed): code-built stand-in, replaced by the Blender model once it loads
+    var a0 = 18 * Math.PI / 180, a1 = 92 * Math.PI / 180, simple = new THREE.Group(); inner.add(simple);
+    add(simple, extrude(caliperShape(0.6, 1.13, a0, a1), 0.4, 0.045, 40), M.red);
+    add(simple, extrude(caliperShape(0.94, 1.16, a0 + 0.12, a1 - 0.12), 0.2, 0.02, 30), M.black);   // pad window
     [34, 55, 76].forEach(function (deg) {
       var c = deg * Math.PI / 180;
-      add(inner, cyl(0.085, 0.05, 28), M.gun, Math.cos(c) * 0.8, Math.sin(c) * 0.8, 0.2);
-      add(inner, cyl(0.05, 0.07, 6), M.chrome, Math.cos(c) * 0.8, Math.sin(c) * 0.8, 0.2);
+      add(simple, cyl(0.085, 0.05, 28), M.gun, Math.cos(c) * 0.8, Math.sin(c) * 0.8, 0.2);
+      add(simple, cyl(0.05, 0.07, 6), M.chrome, Math.cos(c) * 0.8, Math.sin(c) * 0.8, 0.2);
     });
-    return { group: group, update: function (t) { rotor.rotation.z = -t * 0.45; } };
+    loadGLB("assets/models/caliper.glb", { red: M.red, pad: M.pad, steel: M.steel, chrome: M.chrome, black: M.black }, function (model) {
+      model.rotation.z = (55 - 90) * Math.PI / 180;      // model is centred on +Y; the old one sat at 55 degrees
+      inner.remove(simple); inner.add(model);
+    });
+    return { group: group, update: function (t) { spinGroup.rotation.z = -t * 0.45; } };
   });
 
   // ---------- 3. alloy wheel + tyre ----------
@@ -392,52 +456,46 @@
     };
   });
 
-  // ---------- 5. A/C blower fan ----------
+  // ---------- 5. A/C compressor ----------
   builders.push(function () {
     var group = new THREE.Group(), inner = new THREE.Group(); group.add(inner);
-    inner.scale.setScalar(1.18); inner.rotation.set(0.15, -0.6, 0);
+    inner.scale.setScalar(1.32); inner.position.set(0.1, -0.12, 0); inner.rotation.set(0.3, -0.95, 0.12);
     var rotor = new THREE.Group(); inner.add(rotor);
 
-    var L = 0.66, C = 0.44, blade = new THREE.BoxGeometry(L, 0.022, C, 12, 1, 8), p = blade.attributes.position;
-    for (var i = 0; i < p.count; i++) {
-      var u = p.getX(i) / L + 0.5, y = p.getY(i), z = p.getZ(i);
-      y += 0.07 * (1 - Math.pow(2 * z / C, 2));                              // camber
-      var tw = 1.05 - 0.6 * u, cy = Math.cos(tw), sy = Math.sin(tw);         // twist root -> tip
-      var y2 = y * cy - z * sy, z2 = y * sy + z * cy;
-      var r = 0.3 + u * L, sw = 0.4 * u * u, cs = Math.cos(sw), sn = Math.sin(sw);   // sweep
-      p.setXYZ(i, r * cs - y2 * sn, r * sn + y2 * cs, z2);
-    }
-    blade.computeVertexNormals();
-    var bladeMat = std({ color: 0xd5d9df, metalness: 1, roughness: 0.3, side: THREE.DoubleSide });
-    for (var k = 0; k < 11; k++) { var b = add(rotor, blade, bladeMat); b.rotation.z = k / 11 * TAU; }
-    var hub = lathe([[0, 0.34], [0.1, 0.32], [0.22, 0.22], [0.3, 0.05], [0.31, -0.24], [0, -0.24]], 64, 50); hub.rotateX(Math.PI / 2);
-    add(rotor, hub, M.chrome);
-    var tip = lathe([[0, 0.345], [0.07, 0.335], [0.1, 0.325]], 32, 60); tip.rotateX(Math.PI / 2);
-    add(rotor, tip, M.red);
+    // simple code-built stand-in until the Blender model loads
+    var fixed = new THREE.Group(); inner.add(fixed);
+    add(fixed, cyl(0.5, 1.4, 64), M.alu, 0, 0, -0.2);
+    add(rotor, cyl(0.63, 0.22, 64), M.gun, 0, 0, 0.67);
+    add(rotor, cyl(0.55, 0.04, 64), M.steel, 0, 0, 0.8);
 
-    var shroud = lathe([[1.0, -0.3], [1.06, -0.32], [1.1, -0.28], [1.1, 0.28], [1.06, 0.32], [1.0, 0.3], [0.985, 0.0], [1.0, -0.3]], 128, 40);
-    shroud.rotateX(Math.PI / 2);
-    add(inner, shroud, M.black);
-    var lip = new THREE.TorusGeometry(1.085, 0.022, 12, 128);
-    add(inner, lip, M.chrome, 0, 0, 0.31);
-    for (var s = 0; s < 3; s++) { var st = add(inner, new THREE.BoxGeometry(1.0, 0.07, 0.03), M.gun, 0, 0, -0.26); st.rotation.z = s / 3 * Math.PI; }
+    var plateFace = faced(0.56, { color: 0xb4bac3, roughness: 0.55 }); plateFace.userData.planarUV = true;
+    loadGLB("assets/models/compressor.glb", {
+      ac_body: std({ color: 0xc3c8cf, metalness: 1, roughness: 0.5 }),
+      ac_pulley: std({ color: 0x1d1f24, metalness: 1, roughness: 0.32 }),
+      ac_plate: plateFace, ac_steel: M.steel, ac_fitting: M.chrome, ac_cap_hot: M.red,
+      ac_cap_cold: phys({ color: 0x0d4fb8, metalness: 0.1, roughness: 0.35, clearcoat: 1 }),
+      ac_black: M.black, ac_brass: M.gold
+    }, function (model) {
+      rotor.clear(); inner.remove(fixed);
+      model.children.slice().forEach(function (n) { (n.name.indexOf("rot_") === 0 ? rotor : inner).add(n); });   // rot_* parts spin
+    });
 
-    // cool air stream
-    var N = 160, seed = new Float32Array(N * 3), pos = new Float32Array(N * 3);
+    // cold mist drifting off the body
+    var N = 140, seed = new Float32Array(N * 3), pos = new Float32Array(N * 3);
     for (var q = 0; q < N * 3; q++) seed[q] = Math.random();
-    var g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    var g = new THREE.BufferGeometry(); g.setAttribute("position", new THREE.BufferAttribute(pos, 3));
     var air = new THREE.Points(g, new THREE.PointsMaterial({
-      size: 0.05, map: radialTexture([[0, 'rgba(255,255,255,1)'], [1, 'rgba(255,255,255,0)']], 64),
-      color: 0x8fd8ff, transparent: true, opacity: 0.85, blending: THREE.AdditiveBlending, depthWrite: false
+      size: 0.045, map: radialTexture([[0, "rgba(255,255,255,1)"], [1, "rgba(255,255,255,0)"]], 64),
+      color: 0x8fd8ff, transparent: true, opacity: 0.7, blending: THREE.AdditiveBlending, depthWrite: false
     }));
-    air.frustumCulled = false; inner.add(air);
+    air.frustumCulled = false; group.add(air);
     return {
       group: group,
       update: function (t) {
-        rotor.rotation.z = -t * 2.4;
+        rotor.rotation.z = -t * 1.1;
         for (var i = 0; i < N; i++) {
-          var u = (seed[i * 3] + t * (0.16 + seed[i * 3 + 1] * 0.12)) % 1, a = seed[i * 3 + 2] * TAU + u * 2.2, r = 0.25 + seed[i * 3 + 1] * 0.7 + u * 0.3;
-          pos[i * 3] = Math.cos(a) * r; pos[i * 3 + 1] = Math.sin(a) * r; pos[i * 3 + 2] = 0.35 + u * 2.6;
+          var u = (seed[i * 3] + t * (0.05 + seed[i * 3 + 1] * 0.05)) % 1, a = seed[i * 3 + 2] * TAU + t * 0.15, r = 0.9 + seed[i * 3 + 1] * 0.7;
+          pos[i * 3] = Math.cos(a) * r; pos[i * 3 + 1] = -1.3 + u * 2.6; pos[i * 3 + 2] = Math.sin(a) * r * 0.6;
         }
         g.attributes.position.needsUpdate = true;
       }
@@ -480,7 +538,23 @@
 
   /* ---------------- stage: parts + backdrop ---------------- */
   var stage = new THREE.Group(); scene.add(stage);
-  var parts = builders.map(function (b) { var p = b(); p.group.visible = false; stage.add(p.group); return p; });
+  // Parts are built one at a time: the one on screen first, the rest while the browser is idle.
+  var parts = builders.map(function () { return null; });
+  function ensure(i) {
+    if (parts[i]) return parts[i];
+    deferred = [];
+    var p = builders[i]();
+    p.loads = deferred; deferred = null;
+    p.group.visible = false; stage.add(p.group); parts[i] = p;
+    return p;
+  }
+  var idle = window.requestIdleCallback ? function (cb) { window.requestIdleCallback(cb, { timeout: 1200 }); } : function (cb) { setTimeout(cb, 120); };
+  function buildRest() {
+    var here = SITE.stageT(), next = -1;
+    parts.forEach(function (p, i) { if (!p && (next < 0 || Math.abs(i - here) < Math.abs(next - here))) next = i; });
+    if (next < 0) return;
+    ensure(next); idle(buildRest);
+  }
 
   // instrument dial behind the part
   var dial = new THREE.Group(); dial.position.z = -1.6; scene.add(dial);
@@ -538,15 +612,17 @@
     tilt.x += (pointer.y * 0.16 - tilt.x) * k * 0.6;
     tilt.y += (pointer.x * 0.3 - tilt.y) * k * 0.6;
 
-    parts.forEach(function (p, i) {
-      var d = curT - i, ad = Math.abs(d);
-      p.group.visible = ad < 0.98;
-      if (!p.group.visible) return;
+    for (var i = 0; i < parts.length; i++) {
+      var d = curT - i, ad = Math.abs(d), p = parts[i];
+      if (p && p.loads && ad < 1.6) { p.loads.forEach(function (go) { go(); }); p.loads = null; }   // fetch models just ahead of need
+      if (ad >= 0.98) { if (p) p.group.visible = false; continue; }
+      p = ensure(i);
+      p.group.visible = true;
       p.group.position.y = d * 4.4;                                          // rides up with the scroll
       p.group.scale.setScalar(fit * (1 - 0.4 * ad) * (isMobile && i === 0 ? 0.82 : 1));
       p.group.rotation.set(tilt.x + d * 0.5, tilt.y + d * 1.5, 0);
       p.update(time, dt);
-    });
+    }
 
     dial.scale.setScalar(fit);
     dial.rotation.z = -curT * 0.7 + time * 0.03;
@@ -555,7 +631,7 @@
     var sx = isMobile ? 0 : curSx, sy = isMobile ? 0.2 + 0.08 * Math.max(0, 1 - curT) : 0;
     camera.setViewOffset(W, H, -sx * W, sy * H, W, H);
     renderer.render(scene, camera);
-    if (!started) { started = true; SITE.hideLoader(); }
+    if (!started) { started = true; SITE.hideLoader(); idle(buildRest); }
   }
   frame();
 })();
